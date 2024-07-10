@@ -718,12 +718,50 @@ class Clib():
             y = signal[:, k]*0
         return y
 
-    ## Making a signal of an exponential inverse
     @staticmethod
-    def sigmoid(time_line, bias, alph, area):
+    ## Sigmoid function
+    def sigmoid(x):
         '''
         ### Description:
         Sigmoid generator function.
+
+        ### Input variables:
+        * x
+        
+        ### Output variable:
+        * The output signal
+        
+        ### Copyright:
+        Copyright (c) 2024, Abolfazl Delavar, all rights reserved.
+        Web page: https://github.com/abolfazldelavar/dyrun
+        '''
+        return 1/(1 + np.exp(-x))
+    
+    @staticmethod
+    ## Derivative of sigmoid function
+    def d_sigmoid(x):
+        '''
+        ### Description:
+        Sigmoid generator function.
+
+        ### Input variables:
+        * x
+        
+        ### Output variable:
+        * The output signal
+        
+        ### Copyright:
+        Copyright (c) 2024, Abolfazl Delavar, all rights reserved.
+        Web page: https://github.com/abolfazldelavar/dyrun
+        '''
+        sigmoid_value = Clib.sigmoid(x)
+        return sigmoid_value*(1 - sigmoid_value)
+    
+    @staticmethod
+    def esp_sigmoid(time_line, bias, alph, area):
+        '''
+        ### Description:
+        Especialized Sigmoid generator function.
 
         ### Input variables:
         * Time line
@@ -735,11 +773,11 @@ class Clib():
         * The output signal
         
         ### Copyright:
-        Copyright (c) 2023, Abolfazl Delavar, all rights reserved.
+        Copyright (c) 2024, Abolfazl Delavar, all rights reserved.
         Web page: https://github.com/abolfazldelavar/dyrun
         '''
         # Note that signal domain is a two component vector [a(1), a(2)]
-        output = 1/(1 + np.exp(-alph*(time_line - bias)))
+        output = Clib.sigmoid(alph*(time_line - bias))
         return (area[1] - area[0])*output + area[0]
     
     ## Making an exponential signal
@@ -764,6 +802,33 @@ class Clib():
         Ss = area(1); # Start point
         Sf = area(2); # Final value
         return (Ss - Sf)*np.exp(-decay_rate*time_line) + Sf
+
+    ## Continued projection operator
+    @staticmethod
+    def cproj(y, th, th_m, eps):
+        '''
+            ### Overview:
+            Continued projection operator given in:
+            Adaptive Control: Introduction, Overview, and Applications, Eugene Lavretsky, Ph.D. slides
+
+            ### Input Parameters:
+            * `y`: the value of function `y`
+            * `th`: the value of estimated parameter
+            * `th_m`: maximum norm value that covers the norm value of `th`
+            * `eps`: a positive value that defines the maximum bound of parameters
+            
+            ### Copyright:
+            Copyright (c) 2024, Abolfazl Delavar, all rights reserved.
+            Web page: https://github.com/abolfazldelavar/dyrun
+        '''
+        func = (np.linalg.norm(th)**2 - th_m**2)/(eps * th_m**2)
+        func_gra = (2*th)/(eps * th_m**2)
+        
+        output = y
+        sub_term = (func_gra @ func_gra.T)/(np.linalg.norm(func_gra)**2) @ y * func if func > 0 and np.trace(y.T @ func_gra) > 0 else 0
+        output -= sub_term
+        return output
+
 
     ## Linear mapping a number
     @staticmethod

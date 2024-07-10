@@ -273,8 +273,8 @@ class Scope():
         Appending signals with similar `time_line`.
         
         ### Input variables:
-        `other` - the second Scope object that is supposed to be appended to the first one.
-        `select` - Is used to select only a specific signal of each Scope. For instance, to
+            * `other` - the second Scope object that is supposed to be appended to the first one.
+            * `select` - Is used to select only a specific signal of each Scope. For instance, to
         choose and append two first signals of each Scopes, use `scope_1.append((scope_2, scope_3, scope_4), [0,1])`
         
         ### Copyright:
