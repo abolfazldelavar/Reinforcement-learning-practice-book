@@ -140,7 +140,7 @@ class LtiGroup():
         # Getting a backup of initial values
         self.backup = cop.copy(self.__dict__)
         # Comment and diary
-        Clib.diary(f'{self.name} has been created.')
+        Clib.diary(f'"{self.name}" was created.')
 
     def __repr__(self):
         return f"** {self.name} **\nNumber of elements: {self.number_ltis}"
@@ -181,7 +181,7 @@ class LtiGroup():
         text += f"#### Variables: \n\n ${table_c}$"
         return text
     
-    def predict(self, input_signal, x_noise = 0, y_noise = 0):
+    def __call__(self, input_signal, x_noise = 0, y_noise = 0):
         '''
         ### Overview:
         This function can provide an easy way to call dydnamics of the system to calculate the next sample states.
@@ -345,7 +345,7 @@ class LinearKalmanFilter():
         # Getting a backup of initial values
         self.backup = cop.copy(self.__dict__)
         # Comment and diary
-        Clib.diary(f'{self.name} has been created.')
+        Clib.diary(f'"{self.name}" was created.')
         
     # Representation LaTeX form
     def _repr_latex_(self):            
@@ -372,7 +372,7 @@ class LinearKalmanFilter():
         text += f"#### Variables: \n\n ${table_c}$"
         return text
     
-    def predict(self, inputs, outputs):
+    def __call__(self, inputs, outputs):
         '''
         ### Overview:
         Making a prediction of the next step using the current data
@@ -453,6 +453,244 @@ class LinearKalmanFilter():
             obj.backup = cop.copy(obj.__dict__)
     
 # End of class
+
+
+# Nonlinear parameter and state Identifier
+class NeuroIdentifier(SolverCore):
+    # All objects
+    all_objects = []
+    # Initialization
+    def __init__(self, inserted_system, sample_time, **kwargs):
+        '''
+        ### Overview:
+        Nonlinear parameters and states identifier is used to capture the derivative of
+        a dynamical system states, and identifies the drift term with a neronal network.
+        Note that this function is used only for continuous time systems at the moment.
+        Inserted systems must be given as a inherited object of Nonlinar class.
+        In case having access to the identifier formula, refer to the below book:
+        Reinforcement learning for optimal feedback control, R. Kamalapurkar, et al. P.46.
+
+        ### Input Parameters:
+        * `inserted_system`; Inserted system. in general is a `Nonlinear` inherited object
+        * `sample_time` : Sample time
+
+        ### Configuration Options:
+        * `name`: Defines a name for the object
+        * `solver_type`: Solver type. e.g., `euler`, `rng4`
+        * `x_0`: Specifies the initial state
+        * `L`: Number of neurons. Default is `5`
+        * `w_m`: Maximum norm of the parameters employed by a projection operator. Default is `1e16`
+        * `eps`: Epsilon value used in the projection operator. Default is `0.2`.
+        * `k`: Positive constant control gains. e.g., `800`
+        * `alpha`: Positive constant control gains. e.g., `300`
+        * `gamma`: Positive constant control gains. e.g., `5`
+        * `beta`: Positive constant control gains. e.g., `0.2`
+        * `pi_w`: Positive constant adaptation gain matrices (L+1*L+1)
+        * `pi_v`: Positive constant adaptation gain matrices (n*n)
+        * `act_f`: The type of acivation function. Default if `sigmoid`. Other options: 
+        * `dist_c`: Disturbance canceller term. Default is `True`
+        
+        ### Copyright:
+        Copyright (c) 2024, Abolfazl Delavar, all rights reserved.
+        Web page: https://github.com/abolfazldelavar/dyrun
+        '''
+        
+        # Adding the current object to the list
+        NeuroIdentifier.all_objects.append(self)
+        # Initial variables
+        self.g = inserted_system.g
+        self.sample_time = sample_time
+        self.n_states = inserted_system.n_states # The number of states
+        self.n_inputs = inserted_system.n_inputs # The number of inputs
+        self.name = 'Neuro Identifier'
+        self.solver_type = 'euler'
+        initial_condition = inserted_system.initial_states
+        self.L = 5
+        L_updated = 0 # Flag var
+        self.w_m = 1e16
+        self.eps = 0.2
+        self.k = 800
+        self.alpha = 300
+        self.gamma = 5
+        self.beta = 0.2
+        self.pi_v = 0.1*np.eye(self.n_states)
+        self.act_f = 'sigmoid'
+        self.dist_c = True
+        for key, val in kwargs.items():
+            if key == 'name': self.name = val
+            if key == 'solver_type': self.solver_type = val
+            if key == 'x_0': initial_condition = val
+            if key == 'L': self.L = val
+            if key == 'w_m': self.w_m = val
+            if key == 'eps': self.eps = val
+            if key == 'k': self.k = val
+            if key == 'alpha': self.alpha = val
+            if key == 'gamma': self.gamma = val
+            if key == 'beta': self.beta = val
+            if key == 'pi_w': (self.pi_w, L_updated) = (val, 1)
+            if key == 'pi_v': self.pi_v = val
+            if key == 'act_f': self.act_f = val
+            if key == 'dist_c': self.dist_c = val
+        
+        L_reducer = self.L + 1 if self.dist_c == True else self.L
+        if L_updated == 0: self.pi_w = 0.1*np.eye(L_reducer)
+
+        self.x_h = np.zeros([self.n_states, 1]) # Estimated state
+        self.dx_h = np.zeros([self.n_states, 1]) # The derivative of estimated state
+        self.z = np.zeros((self.n_states, 1))
+        self.W = np.random.randn(L_reducer, self.n_states)
+        self.V = np.random.randn(self.n_states, self.L)
+        # self.W = np.ones((L_reducer, self.n_states))
+        # self.V = np.ones((self.n_states, self.L))
+        
+        # Adjusting the initial condition
+        initial_condition = np.array(initial_condition).ravel()
+        if initial_condition.size == self.n_states:
+            self.x_h = initial_condition.reshape((-1,1))
+        self.x_tilde_0 = np.array(inserted_system.initial_states).reshape((-1,1)) - self.x_h
+        # Getting a backup of initial values
+        self.backup = cop.copy(self.__dict__)
+        # Comment and diary
+        Clib.diary(f'"{self.name}" was created.')
+        
+    # Representation LaTeX form
+    def _repr_latex_(self):            
+        table_f  = r'\begin{aligned}'
+        table_f += r'\begin{cases}'
+        table_f += r'\dot{\hat{x}}(t) = \hat W^T(t)\sigma\left(\hat V^T(t)\hat{x}(t)\right) + g\left( x(t) \right)u(t) + k\left(x(t) - \hat x(t)\right) - k\left(x(0) - \hat x(0)\right) + z(t) \\'
+        table_f += r'\dot z(t) = (k\alpha +\gamma)\left(x(t) - \hat x(t) \right) + \beta \text{sgn}\left(x(t) - \hat x(t) \right), z(0)=0'
+        table_f += r'\end{cases} \\'
+        table_f += r'\end{aligned}\\'
+        table_f += r'\begin{aligned}'
+        table_f += r'\begin{cases}'
+        table_f += r'\dot{\hat W}(t) = \text{Proj}\left( \varPi_w \nabla\sigma\left( \hat V^T(t)\hat x(t) \right) \hat V^T(t)\dot{\hat{x}}(t) \left( x(t) - \hat x(t) \right)^T \right) \\'
+        table_f += r'\dot{\hat V}(t) = \text{Proj}\left( \varPi_v \dot{\hat{x}}(t) \left( x(t) - \hat x(t) \right)^T \hat W^T(t) \nabla\sigma\left( \hat V^T(t)\hat x(t) \right) \right)\\'
+        table_f += r'\end{cases}\\'
+        table_f += r'\end{aligned}'
+        table_p  = r'\begin{aligned}'
+        table_p += f'&\hat x(t) &&= {Clib.latex_matrix(self.x_h.T, (6,6))}^T \\\\ '
+        table_p += r'&\dot{\hat x}(t) &&= ' + f'{Clib.latex_matrix(self.dx_h.T, (6,6))}^T' + r' \\ '
+        table_p += f'&z(t) &&= {Clib.latex_matrix(self.z.T, (6,6))}^T \\\\ '
+        table_p += f'&\hat W &&= {Clib.latex_matrix(self.W, (6,6))} \\\\ '
+        table_p += f'&\hat V &&= {Clib.latex_matrix(self.V, (6,6))} \\\\ '
+        table_p += r'\end{aligned}'
+        table_c  = r'\begin{aligned}'
+        table_c += r'&\text{Name} &&= \text{'+ self.name + r'} \\ '
+        table_c += r'&\text{Solver type} &&= \text{'+ self.solver_type + r'} \\ '
+        table_c += f'&L &&= {self.L} \\\\ '
+        table_c += f'&\\bar w_m &&= {self.w_m} \\\\ '
+        table_c += f'&\\epsilon &&= {self.eps} \\\\ '
+        table_c += f'&k &&= {self.k} \\\\ '
+        table_c += f'&\\alpha &&= {self.alpha} \\\\ '
+        table_c += f'&\\gamma &&= {self.gamma} \\\\ '
+        table_c += f'&\\beta &&= {self.beta} \\\\ '
+        table_c += f'&\\varPi_w &&= {Clib.latex_matrix(self.pi_w, (6,6))} \\\\ '
+        table_c += f'&\\varPi_v &&= {Clib.latex_matrix(self.pi_v, (6,6))} \\\\ '
+        table_c += r'&\sigma(.) &&= \text{' + self.act_f + r'} \\ '
+        table_c += f'&dist_c &&= {self.dist_c}'
+        table_c += r'\end{aligned}'
+        
+        text  = f"### {self.name}\n\n "
+        text += f"#### Formulas: \n\n ${table_f}$ \n"
+        text += f"#### Parameters: \n\n ${table_c}$ \n"
+        text += f"#### Variables: \n\n ${table_p}$"
+        return text
+    
+    def __call__(self, inputs, states):
+        '''
+        ### Overview:
+        Making a prediction of the next step using the current data
+
+        ### Input variables:
+        * Input array at step `k`
+        * State array at step `k`
+        
+        ### Copyright:
+        Copyright (c) 2024, Abolfazl Delavar, all rights reserved.
+        Web page: https://github.com/abolfazldelavar/dyrun
+        '''
+        
+        # Initialization
+        inputs = np.array(inputs).reshape((-1,1))
+        states = np.array(states).reshape((-1,1))
+        
+        def sig_value(dist_c, xx, V):
+            if dist_c == True:
+                return np.append(Clib.sigmoid(V.T @ xx), 1).reshape((-1,1))
+            else:
+                return Clib.sigmoid(V.T @ xx).reshape((-1,1))
+        
+        # Updating x section
+        handle_dyn = lambda xx: self.W.T @ sig_value(self.dist_c, xx, self.V) \
+                                    + self.g(states) @ inputs \
+                                    + self.k*(states - xx) \
+                                    - self.k * self.x_tilde_0 \
+                                    + self.z
+        x_n = super().dynamic_runner(handle_dyn, self.x_h, self.x_h, self.sample_time, self.solver_type)
+        dx_n = handle_dyn(self.x_h)
+        
+        # Updating z
+        handle_dyn = lambda zz: (self.k*self.alpha + self.gamma)*(states - self.x_h) \
+                                    + self.beta*np.sign(states - self.x_h)
+        z_n = super().dynamic_runner(handle_dyn, self.z, self.z, self.sample_time, self.solver_type)
+        
+        # Updating W
+        if self.dist_c == True: # disturbance canceller is on
+            grad_sigma = np.concatenate([np.diag(Clib.d_sigmoid(self.V.T @ self.x_h).flatten()), np.zeros((1,self.L))], axis=0)
+        else:
+            grad_sigma = np.diag(Clib.d_sigmoid(self.V.T @ self.x_h).flatten())
+        W_free = grad_sigma @ self.V.T @ self.dx_h @ (states - self.x_h).T
+        # handle_dyn = lambda WW: self.pi_w @ Clib.cproj(W_free, self.W, self.w_m, self.eps)
+        handle_dyn = lambda WW: self.pi_w @ W_free
+        W_n = super().dynamic_runner(handle_dyn, self.W, self.W, self.sample_time, self.solver_type)
+        
+        # Updating V
+        V_free = self.dx_h @ (states - self.x_h).T @ self.W.T @ grad_sigma
+        # handle_dyn = lambda VV: self.pi_v @ Clib.cproj(V_free, self.V, self.w_m, self.eps)
+        handle_dyn = lambda VV: self.pi_v @ V_free
+        V_n = super().dynamic_runner(handle_dyn, self.V, self.V, self.sample_time, self.solver_type)
+        
+        # Storing new values
+        self.x_h = x_n
+        self.dx_h = dx_n
+        self.z = z_n
+        self.W = W_n
+        self.V = V_n
+    
+    def reset(self):
+        '''
+        ### Overview:
+        Reseting the block.
+        
+        ### Copyright:
+        Copyright (c) 2023, Abolfazl Delavar, all rights reserved.
+        Web page: https://github.com/abolfazldelavar/dyrun
+        '''
+        # Reset all variables to their initial values
+        temp_1 = self.backup
+        self.__dict__.clear()
+        self.__dict__.update(temp_1)
+        self.backup = cop.copy(self.__dict__)
+        
+    @classmethod
+    def reset_all(cls):
+        '''
+        ### Overview:
+        Reseting all objects.
+        
+        ### Copyright:
+        Copyright (c) 2023, Abolfazl Delavar, all rights reserved.
+        Web page: https://github.com/abolfazldelavar/dyrun
+        '''
+        for obj in cls.all_objects:
+            # Reset all variables to their initial values
+            temp_1 = obj.backup
+            obj.__dict__.clear()
+            obj.__dict__.update(temp_1)
+            obj.backup = cop.copy(obj.__dict__)
+    
+# End of class
+
 
 # Nonlinear dynamic group
 class NonlinearGroup(SolverCore):
@@ -539,12 +777,12 @@ class NonlinearGroup(SolverCore):
         # Getting a backup of initial values
         self.backup = cop.copy(self.__dict__)
         # Comment & diary
-        Clib.diary('"' + self.name + '" has been created.')
+        Clib.diary('"' + self.name + '" was created.')
     
     def __repr__(self):
         return f"** {self.__name__} **\nNumber of elements: {self.n_neurons}\nSolver Type: '{self.solver_type}'"
     
-    def predict(self, input_signal, **kwargs):
+    def __call__(self, input_signal, **kwargs):
         '''
         ### Overview:
         This function can provide a `prediction` of the next step, using the current inputs.
@@ -696,7 +934,7 @@ class Nonlinear(SolverCore):
                 self.wc = self.wm
                 self.wc[0,0] = self.wm[0,0] + (1 - np.power(self.alpha,2) + self.betta)
         # Comment & diary
-        Clib.diary('"' + self.name + '" has been created.')
+        Clib.diary('"' + self.name + '" was created.')
 
     def __call__(self, input_signal, x_noise = np.array([0]), y_noise = np.array([0])):
         '''
@@ -718,7 +956,7 @@ class Nonlinear(SolverCore):
         current_time = self.time_line[0, self.current_step]
         
         # Preparing the input signal and saving it to the internal array
-        self.inputs[:, self.current_step] = input_signal.flatten()
+        self.inputs[:, self.current_step] = np.array(input_signal).flatten()
         
         # Establishing before-state-limitations:
         # This can be employed if we desire to process states prior to computing the subsequent states utilizing dynamics.
@@ -855,7 +1093,7 @@ class Nonlinear(SolverCore):
     def __nextstepUKF(self, input_signal, output_signal):
         # [Internal update] <- (Internal, Input, Output)
         # ------------------------------------------------------
-        # To see how this algorithm works, refer to below source:
+        # To see how this algorithm works, refer to the below source:
         #   A. Delavar and R. R. Baghbadorani, "Modeling, estimation, and
         #   model predictive control for Covid-19 pandemic with finite
         #   security duration vaccine," 2022 30th International Conference

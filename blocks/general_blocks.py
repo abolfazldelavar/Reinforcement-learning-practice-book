@@ -167,7 +167,7 @@ class TwoTanks(Nonlinear):
     q_atrix = np.eye(2)*2e-1 # Dynamic noise variance
     r_matrix = np.eye(2)*1e0 # Measurement noise variance
     
-    # UNSKENTED KALMAN FILTER -------
+    # UNSCENTED KALMAN FILTER -------
     # Note that 'Extended KF' parameters is also useful for 'Unscented KF', 
     # so just put your values there, as well.
     kappa = 80 # A non-negative real number
@@ -275,7 +275,7 @@ class Lorenz(Nonlinear):
     q_matrix = np.eye(3)*1e0 # Dynamic noise variance
     r_matrix = np.eye(2)*1e0 # Measurement noise variance
     
-    # UNSKENTED KALMAN FILTER -------
+    # UNSCENTED KALMAN FILTER -------
     # Note that 'Extended KF' parameters is also useful for 'Unscented KF', 
     # so just put your values there, as well.
     kappa = 80       # A non-negative real number
@@ -347,3 +347,75 @@ class Lorenz(Nonlinear):
     # End of function
 # End of class
 
+
+class NonSys1(Nonlinear):
+    '''
+    ### Nonlinear system 1
+    A nonlinear system with two states and one control input given in the bellow reference:
+    Reinforcement learning for optimal feedback control, R. Kamalapurkar, et al. P.55.
+    '''
+
+    # This name will be showed as its plot titles
+    name = 'Nonlinear System 1'
+    n_states = 2 # The number of states
+    n_inputs = 1 # The number of inputs
+    n_outputs = 2 # The number of outputs
+    time_type = 'c' # 'c' -> Continuous, 'd' -> Discrete
+    solver_type = 'euler' # 'euler', 'rng4'
+    initial_states = [3, -1] # Initial value of states
+    
+    # EXTENTED KALMAN FILTER --------
+    covariance = 1e+3*np.eye(3) # Covariance of states
+    q_matrix = np.eye(3)*1e0 # Dynamic noise variance
+    r_matrix = np.eye(2)*1e0 # Measurement noise variance
+    
+    # UNSCENTED KALMAN FILTER -------
+    # Note that 'Extended KF' parameters is also useful for 'Unscented KF', 
+    # so just put your values there, as well.
+    kappa = 80       # A non-negative real number
+    alpha = 0.2      # a \in (0, 1]
+
+    # Other variables and functions
+    def f(self, x):
+        fo = np.zeros([2, 1])
+        fo[0, 0] = -x[0] + x[1]
+        fo[1, 0] = -0.5*x[0] - 0.5*x[1]*(1 - (2 + np.math.cos(2*x[0]))**2)
+        return fo
+    
+    # The below function (g) is vital for Identifier configuration
+    def g(self, x):
+        go = np.zeros([2, 1])
+        go[1, 0] = np.math.cos(2*x[0]) + 2
+        return go
+    
+    ## This part is internal dynamic functions that represents
+    #  internal relations between states and inputs
+    #  ~~> dx = f(x,u)
+    def _dynamics(self, x, input_signal, k, st, t):
+        # Parameters, States, Inputs, Current step, Sample-time, Current time
+        dx      = np.zeros([2, 1])
+        dx = self.f(x[:, k]) + self.g(x[:, k])*input_signal[:, k]
+        return dx
+
+    ## Measurement functions 
+    #  ~~> y = g(x,u)
+    def _measurements(self, x, input_signal, k, st, t):
+        # Parameters, States, Inputs, Current step, Sample-time, Current time
+        y      = np.zeros([2, 1])
+        y[0,0] = x[0, k]
+        y[1,0] = x[1, k]
+        return y
+    
+    ## All limitations before and after the state updating
+    #  It can be useful for systems which have rules
+    def _limitations(self, x, mode):
+        # Self, States, Mode
+        if mode == 0:
+            # before updating states
+            pass
+        elif mode == 1:
+            # After updating states
+            pass
+        return x
+        
+# End of class
